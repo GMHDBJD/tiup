@@ -47,6 +47,8 @@ function kill_all() {
     killall -9 tikv-server || true
     killall -9 pd-server || true
     killall -9 tikv-cdc || true
+    killall -9 dm-worker || true
+    killall -9 dm-master || true
     killall -9 tiflash || true
     killall -9 tiproxy || true
     killall -9 grafana-server || true
@@ -185,6 +187,33 @@ pid=`tiup-playground display | grep "tiproxy" | awk 'NR==1 {print $1}'`
 tiup-playground scale-in --pid $pid
 sleep 5
 check_instance_num tiproxy 1
+
+# test for dm
+echo -e "\033[0;36m<<< Run DM test >>>\033[0m"
+tiup-playground $TIDB_VERSION --db 0 --pd 0 --kv 0 --tiflash 0 --dm-master 1 --dm-worker 1 > $outfile 2>&1 &
+sleep 3
+timeout 300 grep -q "Connect DM" <(tail -f $outfile)
+tiup-playground display | grep -qv "exit"
+# scale out
+tiup-playground scale-out --dm-worker 2
+sleep 5
+check_instance_num dm-worker 3 # 1(init) + 2(scale-out)
+tiup-playground scale-out --dm-master 2
+sleep 5
+check_instance_num dm-master 3 # 1(init) + 2(scale-out)
+# scale in
+pid=`tiup-playground display | grep "dm-worker" | awk 'NR==1 {print $1}'`
+tiup-playground scale-in --pid $pid
+sleep 5
+check_instance_num dm-worker 2
+pid=`tiup-playground display | grep "dm-master" | awk 'NR==1 {print $1}'`
+tiup-playground scale-in --pid $pid
+sleep 5
+check_instance_num dm-master 2
+
+# exit all
+killall -2 tiup-playground.test || killall -2 tiup-playground
+sleep 30
 
 # exit all
 killall -2 tiup-playground.test || killall -2 tiup-playground
